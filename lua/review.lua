@@ -1,10 +1,12 @@
 local M = {}
 
-local pr = require('pr')
+local pr_builder = require('pr')
 local diff_layout = require('diff.layout')
 local win = require('diff.win')
 
 M.current_diff_layout = nil
+M.review_files = nil
+M.review_pr = nil
 
 local function set_qf_files(files, title)
 	local items = {}
@@ -39,76 +41,146 @@ local function move_in_quickfix(delta)
 end
 
 
-function M.update_diff(file_left, file_right)
+local function map_iteration_keys(bufnr)
+	if not bufnr or bufnr == 0 then
+		return
+	end
+
+	if not (M.review_files and M.review_pr) then
+		return
+	end
+
+	if not vim.api.nvim_buf_is_valid(bufnr) then
+		return
+	end
+
+	local opts = { buffer = bufnr, silent = true }
+
+	local function move(delta)
+		local idx = move_in_quickfix(delta)
+		if not idx then
+			return
+		end
+
+		local file = M.review_files[idx]
+		if not file or file == "" then
+			vim.notify(string.format("GhReview: missing file for quickfix entry %d", idx), vim.log.levels.WARN)
+			return
+		end
+
+		M.diff(file, M.review_pr)
+	end
+
+	vim.keymap.set("n", "]q", function()
+		move(1)
+	end, opts)
+
+	vim.keymap.set("n", "[q", function()
+		move(-1)
+	end, opts)
+end
+
+
+function M.update_diff(file_left, file_right, type)
+	if not file_left or not file_right then
+		return
+	end
+
+	if not M.current_diff_layout then
+		M.current_diff_layout = diff_layout.new()
+	end
+
+	if not (win.ok(M.current_diff_layout.screen_one) and win.ok(M.current_diff_layout.screen_two)) then
+		M.current_diff_layout = diff_layout.new()
+	end
+
 	-- Load the files into buffers (without jumping focus)
 	local buf_left = vim.fn.bufadd(file_left)
 	local buf_right = vim.fn.bufadd(file_right)
 	vim.fn.bufload(buf_left)
 	vim.fn.bufload(buf_right)
 
-	print(win.info(M.current_diff_layout.screen_one))
-	print(win.info(M.current_diff_layout.screen_two))
-	print("file_left:", file_left)
-	print("file_right:", file_right)
-	print("left:", win.binfo(buf_left))
-	print("right:", win.binfo(buf_right))
-
-	assert(win.ok(M.current_diff_layout.screen_one),
-		"screen_one window invalid: " .. win.info(M.current_diff_layout.screen_one))
-	assert(win.ok(M.current_diff_layout.screen_two),
-		"screen_two window invalid: " .. win.info(M.current_diff_layout.screen_two))
-
+	if type and type ~= "" then
+		vim.bo[buf_left].filetype = type
+		vim.bo[buf_right].filetype = type
+	end
 
 	-- Assign buffers to windows
 	vim.api.nvim_win_set_buf(M.current_diff_layout.screen_one, buf_left)
 	vim.api.nvim_win_set_buf(M.current_diff_layout.screen_two, buf_right)
 
+	map_iteration_keys(buf_left)
+	map_iteration_keys(buf_right)
+
 	-- Refresh Diff Mode
-	vim.api.nvim_win_call(M.current_diff_layout.screen_one, function() vim.cmd("diffthis") end)
-	vim.api.nvim_win_call(M.current_diff_layout.screen_two, function() vim.cmd("diffthis") end)
+	vim.api.nvim_win_call(M.current_diff_layout.screen_one, function()
+		vim.cmd("diffoff!")
+		vim.cmd("diffthis")
+	end)
+	vim.api.nvim_win_call(M.current_diff_layout.screen_two, function()
+		vim.cmd("diffthis")
+	end)
 end
 
-function M.diff(file)
-	print(file)
-	M.update_diff()
+function M.diff(file, pr)
+	if not pr then
+		vim.notify("GhReview: PR context missing", vim.log.levels.ERROR)
+		return
+	end
+
+	if not file or file == "" then
+		vim.notify("GhReview: no file selected for diff", vim.log.levels.WARN)
+		return
+	end
+
+	local diff_files, err = pr:get_file_diff(file)
+	if not diff_files then
+		vim.notify(err or ("GhReview: unable to diff " .. file), vim.log.levels.ERROR)
+		return
+	end
+
+
+	M.update_diff(diff_files.base, diff_files.head, diff_files.type)
 end
 
-local function map_iteration_keys(files, bufnr)
-	local opts = { buffer = bufnr, silent = true }
-
-	vim.keymap.set("n", "]q", function()
-		local idx = move_in_quickfix(1)
-		if idx then
-			M.diff(files[idx])
-		end
-	end, opts)
-
-	vim.keymap.set("n", "[q", function()
-		local idx = move_in_quickfix(-1)
-		if idx then
-			M.diff(files[idx])
-		end
-	end, opts)
+local function normalize_pr_id(pr_id)
+	if type(pr_id) == "table" then
+		return pr_id[1]
+	end
+	return pr_id
 end
-
 
 function M.review(pr_id)
-	local files = pr.get_files_list(pr_id)
+	local normalized_id = normalize_pr_id(pr_id)
 
-	local pr_info, err = pr.get_info(pr_id)
-	if pr_info == nil then
+	local pr, err = pr_builder.new(normalized_id)
+	if pr == nil then
 		vim.notify(err, vim.log.levels.ERROR)
 		return
 	end
 
-	map_iteration_keys(files, vim.api.nvim_get_current_buf())
+	local files, files_err = pr:get_files_list()
+	if files_err then
+		vim.notify(files_err, vim.log.levels.ERROR)
+		return
+	end
+
+	if vim.tbl_isempty(files) then
+		vim.notify("GhReview: no files changed in this PR", vim.log.levels.INFO)
+		return
+	end
+
+	M.review_files = files
+	M.review_pr = pr
 
 	set_qf_files(files, "pr review")
 
 	vim.cmd("copen")
+	local qf_win = vim.api.nvim_get_current_win()
+	map_iteration_keys(vim.api.nvim_win_get_buf(qf_win))
 	vim.cmd("wincmd p")
 	M.current_diff_layout = diff_layout.new()
-	M.diff(files[1])
+	M.diff(files[2], pr)
 end
 
 return M

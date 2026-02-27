@@ -1,35 +1,20 @@
-local M = {}
+local Pr = require('pr.pr')
 
-local gh = require('cmd.gh').cmd
+local extensions = {
+	'pr.diff',
+}
 
----@param pr_id string|number
----@return string[]
-function M.get_files_list(pr_id)
-	local ret = gh.pr.diff({ '--name-only', pr_id })
-	if not ret.ok then
-		return {}
+for _, mod_path in ipairs(extensions) do
+	local ok, extender = pcall(require, mod_path)
+	if ok then
+		if type(extender) == 'function' then
+			extender(Pr)
+		elseif type(extender) == 'table' and type(extender.extend) == 'function' then
+			extender.extend(Pr)
+		end
+	else
+		vim.notify(string.format('Failed to load PR extension: %s', mod_path), vim.log.levels.ERROR)
 	end
-
-	return vim.split(ret.stdout, "\n", { plain = true })
 end
 
-
----@class PrInfo
----@field baseRefOid string
----@field headRefOid string
----@field baseRefName string
----@field headRefName string
-
----@param pr_id string|number
----@return PrInfo|nil, string|nil
-function M.get_info(pr_id)
-	local ret = gh.pr.view({ "--json", "baseRefOid,headRefOid,baseRefName,headRefName", pr_id })
-
-	if not ret.ok then
-		return {}, ret.stderr
-	end
-
-	return vim.json.decode(ret.stdout), nil
-end
-
-return M
+return Pr
