@@ -12,7 +12,13 @@ vim.api.nvim_create_user_command("GhReview", function(opts)
 end, { nargs = "*" })
 
 vim.api.nvim_create_user_command("GhClose", function()
-	require("snapshot").restore_tab_state(review.snapshot)
-end, { nargs = "*" })
+	local snap = review.snapshot
+	if not snap then
+		vim.notify("No snapshot to restore", vim.log.levels.WARN)
+		return
+	end
+
+	require("snapshot").restore_tab_state(snap)
+end, {})
 
 
