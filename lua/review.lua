@@ -3,6 +3,10 @@ local M = {}
 local pr_builder = require('pr')
 local layout = require('layout')
 local comments_printer = require('review.comments')
+local snapshot = require('snapshot')
+
+
+M.snapshot = ""
 
 ---@param file_name		string
 ---@param pr			Pr
@@ -24,8 +28,10 @@ function M.diff(file_name, pr, diff_layout)
 		return
 	end
 
+	local comments = pr:get_file_lines_comment(file_name)
 
 	diff_layout:update(diff_files.base, diff_files.head, diff_files.type)
+	layout.signs.place_review_comments(diff_layout.screen_two, comments)
 	layout.qflist.map_diff_layout_buffers(diff_layout, layout.qflist.forward, layout.qflist.backward)
 end
 
@@ -72,6 +78,8 @@ local function init_qf(files, pr, diff_layout)
 end
 
 function M.review(pr_id)
+	M.snapshot = snapshot.save_tab_state()
+
 	local normalized_id = normalize_pr_id(pr_id)
 
 	local pr, err = pr_builder.new(normalized_id)
