@@ -2,6 +2,7 @@ local M = {}
 
 local pr_builder = require('pr')
 local layout = require('layout')
+local comments_printer = require('review.comments')
 
 ---@param file_name		string
 ---@param pr			Pr
@@ -36,7 +37,6 @@ local function normalize_pr_id(pr_id)
 	return pr_id
 end
 
-
 ---@param delta			integer
 ---@param files 		string[]
 ---@param pr			Pr
@@ -60,6 +60,7 @@ local function init_qf(files, pr, diff_layout)
 	local qf_win = vim.api.nvim_get_current_win()
 	local qf_buf = vim.api.nvim_win_get_buf(qf_win)
 
+	--- TODO change this i garbadge
 	layout.qflist.forward.func = function()
 		move(1, files, pr, diff_layout)
 	end
@@ -75,9 +76,12 @@ function M.review(pr_id)
 
 	local pr, err = pr_builder.new(normalized_id)
 	if pr == nil then
+		assert(err ~= nil, "err can't be nil when there is an error")
 		vim.notify(err, vim.log.levels.ERROR)
 		return
 	end
+
+	comments_printer.print_combined(pr.code_comments, pr.comments, pr.reviews)
 
 	local files, files_err = pr:get_files_list()
 	if files_err then

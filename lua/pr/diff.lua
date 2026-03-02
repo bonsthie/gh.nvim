@@ -80,6 +80,7 @@ function Diff.get_file_diff(pr, file_name)
 	}, nil
 end
 
+
 ---@param Pr Pr
 function Diff.extend(Pr)
 	function Pr:get_file_diff(file_name)
