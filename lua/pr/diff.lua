@@ -34,7 +34,7 @@ local function materialize_file_at_ref(file_name, ref)
 	end
 
 	local stderr = ret.stderr or ''
-	if stderr:match('not in') then
+	if stderr:match('but not in') then
 		return write_temp_file('', spec)
 	end
 
@@ -49,30 +49,42 @@ local function detect_type(file_name, contents)
 	}) or 'text'
 end
 
+---@class PrDiff
+---@field get_file_diff fun(pr:Pr, file_name:string):PrDiffFile|nil, string|nil
+---@field extend fun(Pr:Pr)
 
+local Diff = {}
 
-return function(Pr)
-	---@param file_name string
-	---@return PrDiffFile|nil, string|nil
+---@param pr Pr
+---@param file_name string
+---@return PrDiffFile|nil, string|nil
+function Diff.get_file_diff(pr, file_name)
+	if not file_name or file_name == '' then
+		return nil, 'file_name is required'
+	end
+
+	local base_file, base_err = materialize_file_at_ref(file_name, pr.baseRefOid)
+	if not base_file then
+		return nil, base_err
+	end
+
+	local head_file, head_err = materialize_file_at_ref(file_name, pr.headRefOid)
+	if not head_file then
+		return nil, head_err
+	end
+
+	return {
+		base = base_file,
+		head = head_file,
+		type = detect_type(file_name, base_file)
+	}, nil
+end
+
+---@param Pr Pr
+function Diff.extend(Pr)
 	function Pr:get_file_diff(file_name)
-		if not file_name or file_name == '' then
-			return nil, 'file_name is required'
-		end
-
-		local base_file, base_err = materialize_file_at_ref(file_name, self.baseRefOid)
-		if not base_file then
-			return nil, base_err
-		end
-
-		local head_file, head_err = materialize_file_at_ref(file_name, self.headRefOid)
-		if not head_file then
-			return nil, head_err
-		end
-
-		return {
-			base = base_file,
-			head = head_file,
-			type = detect_type(file_name, base_file)
-		}, nil
+		return Diff.get_file_diff(self, file_name)
 	end
 end
+
+return Diff

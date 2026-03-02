@@ -3,9 +3,9 @@ local M = {}
 local pr_builder = require('pr')
 local layout = require('layout')
 
----@param file_name string
----@param pr Pr
----@param diff_layout DiffLayout
+---@param file_name		string
+---@param pr			Pr
+---@param diff_layout	DiffLayout
 function M.diff(file_name, pr, diff_layout)
 	if not pr then
 		vim.notify("GhReview: PR context missing", vim.log.levels.ERROR)
@@ -37,6 +37,10 @@ local function normalize_pr_id(pr_id)
 end
 
 
+---@param delta			integer
+---@param files 		string[]
+---@param pr			Pr
+---@param diff_layout	DiffLayout
 local function move(delta, files, pr, diff_layout)
 	local idx = layout.qflist.move(delta)
 	if not idx then
