@@ -1,51 +1,69 @@
 local M = {}
 
 local pr_builder = require('pr')
-local diff_layout = require('layout.diff')
 local layout = require('layout')
 
-M.current_diff_layout = nil
-M.review_files = nil
-M.review_pr = nil
-
-local function set_qf_files(files, title)
-	local items = {}
-	for _, f in ipairs(files) do
-		if f ~= "" then
-			table.insert(items, { filename = f, lnum = 1, col = 1, text = "file" })
-		end
-	end
-	vim.fn.setqflist({}, "r", { title = title or "files", items = items })
-	vim.cmd("copen")
-end
-
-
-function M.diff(file, pr)
+---@param file_name string
+---@param pr Pr
+---@param diff_layout DiffLayout
+function M.diff(file_name, pr, diff_layout)
 	if not pr then
 		vim.notify("GhReview: PR context missing", vim.log.levels.ERROR)
 		return
 	end
 
-	if not file or file == "" then
-		vim.notify("GhReview: no file selected for diff", vim.log.levels.WARN)
+	if not file_name or file_name == "" then
+		vim.notify("GhReview: no file_name selected for diff", vim.log.levels.WARN)
 		return
 	end
 
-	local diff_files, err = pr:get_file_diff(file)
+	local diff_files, err = pr:get_file_diff(file_name)
 	if not diff_files then
-		vim.notify(err or ("GhReview: unable to diff " .. file), vim.log.levels.ERROR)
+		vim.notify(err or ("GhReview: unable to diff " .. file_name), vim.log.levels.ERROR)
 		return
 	end
 
 
-	M.update_diff(diff_files.base, diff_files.head, diff_files.type)
+	diff_layout:update(diff_files.base, diff_files.head, diff_files.type)
+	layout.qflist.map_diff_layout_buffers(diff_layout, layout.qflist.forward, layout.qflist.backward)
 end
 
+---@return integer
 local function normalize_pr_id(pr_id)
 	if type(pr_id) == "table" then
 		return pr_id[1]
 	end
 	return pr_id
+end
+
+
+local function move(delta, files, pr, diff_layout)
+	local idx = layout.qflist.move(delta)
+	if not idx then
+		return
+	end
+
+	local file = files[idx]
+	if not file or file == "" then
+		vim.notify(string.format("GhReview: missing file for quickfix entry %d", idx), vim.log.levels.WARN)
+		return
+	end
+
+	M.diff(file, pr, diff_layout)
+end
+
+local function init_qf(files, pr, diff_layout)
+	local qf_win = vim.api.nvim_get_current_win()
+	local qf_buf = vim.api.nvim_win_get_buf(qf_win)
+
+	layout.qflist.forward.func = function()
+		move(1, files, pr, diff_layout)
+	end
+	layout.qflist.backward.func = function()
+		move(-1, files, pr, diff_layout)
+	end
+
+	layout.qflist.map_iteration_keys(qf_buf, layout.qflist.forward, layout.qflist.backward)
 end
 
 function M.review(pr_id)
@@ -68,17 +86,12 @@ function M.review(pr_id)
 		return
 	end
 
-	M.review_files = files
-	M.review_pr = pr
-
-	set_qf_files(files, "pr review")
-
+	layout.qflist.set_files(files, "pr review")
 	vim.cmd("copen")
-	local qf_win = vim.api.nvim_get_current_win()
-	layout.map_iteration_keys(vim.api.nvim_win_get_buf(qf_win))
+	local diff_layout = layout.diff.new()
+	init_qf(files, pr, diff_layout)
 	vim.cmd("wincmd p")
-	M.current_diff_layout = diff_layout.new()
-	M.diff(files[2], pr)
+	M.diff(files[1], pr, diff_layout)
 end
 
 return M
