@@ -135,51 +135,51 @@ local function normalize_pr_reviews(raw_reviews)
 end
 
 local FIELDS = {
-  "baseRefOid", "headRefOid", "baseRefName", "headRefName",
-  "number", "headRepositoryOwner", "headRepository", "url",
-  "comments", "reviews"
+	"baseRefOid", "headRefOid", "baseRefName", "headRefName",
+	"number", "headRepositoryOwner", "headRepository", "url",
+	"comments", "reviews"
 }
 
 ---@param pr_id string|number
 ---@return PrInfo|nil, string|nil
 local function get_info(pr_id)
-    local fields_arg = table.concat(FIELDS, ",")
-    local ret = gh.pr.view({ pr_id, "--json", fields_arg })
+	local fields_arg = table.concat(FIELDS, ",")
+	local ret = gh.pr.view({ pr_id, "--json", fields_arg })
 
-    if not ret.ok then
-        return nil, ret.stderr
-    end
+	if not ret.ok then
+		return nil, ret.stderr
+	end
 
-    local ok, raw_info = pcall(vim.json.decode, ret.stdout)
-    if not ok then
-        return nil, "Failed to decode JSON response"
-    end
+	local ok, raw_info = pcall(vim.json.decode, ret.stdout)
+	if not ok then
+		return nil, "Failed to decode JSON response"
+	end
 
-    local head_repo = raw_info.headRepository or {}
-    local head_owner = raw_info.headRepositoryOwner or head_repo.owner or {}
+	local head_repo = raw_info.headRepository or {}
+	local head_owner = raw_info.headRepositoryOwner or head_repo.owner or {}
 
-    local repo_owner = head_owner.login or head_owner.name
-    local repo_name = head_repo.name
-    local pr_number = tonumber(raw_info.number) or tonumber(pr_id)
+	local repo_owner = head_owner.login or head_owner.name
+	local repo_name = head_repo.name
+	local pr_number = tonumber(raw_info.number) or tonumber(pr_id)
 
-    if not (repo_owner and repo_name) then
-        local url_owner, url_name, url_num = parse_repo_from_url(raw_info.url)
-        repo_owner = repo_owner or url_owner
-        repo_name = repo_name or url_name
-        pr_number = pr_number or url_num
-    end
+	if not (repo_owner and repo_name) then
+		local url_owner, url_name, url_num = parse_repo_from_url(raw_info.url)
+		repo_owner = repo_owner or url_owner
+		repo_name = repo_name or url_name
+		pr_number = pr_number or url_num
+	end
 
-    return {
-        baseRefOid  = raw_info.baseRefOid,
-        headRefOid  = raw_info.headRefOid,
-        baseRefName = raw_info.baseRefName,
-        headRefName = raw_info.headRefName,
-        repoOwner   = repo_owner,
-        repoName    = repo_name,
-        number      = pr_number,
-        comments    = normalize_pr_comments(raw_info.comments or {}),
-        reviews     = normalize_pr_reviews(raw_info.reviews or {}),
-    }, nil
+	return {
+		baseRefOid  = raw_info.baseRefOid,
+		headRefOid  = raw_info.headRefOid,
+		baseRefName = raw_info.baseRefName,
+		headRefName = raw_info.headRefName,
+		repoOwner   = repo_owner,
+		repoName    = repo_name,
+		number      = pr_number,
+		comments    = normalize_pr_comments(raw_info.comments or {}),
+		reviews     = normalize_pr_reviews(raw_info.reviews or {}),
+	}, nil
 end
 
 ---Create a PR wrapper hydrated with metadata fetched from `gh pr view`.
@@ -240,7 +240,24 @@ function Pr:get_files_list()
 	return files, nil
 end
 
+---@param	file_name string
+---@return GhPrReviewCodeComment[]
+function Pr:get_file_lines_comment(file_name)
+	if type(file_name) ~= "string" or file_name == "" then
+		return {}
+	end
 
+	local code_review = self.code_comments
+
+	local filtered = {}
+	for _, comment in ipairs(code_review) do
+		if comment.path == file_name then
+			filtered[#filtered + 1] = comment
+		end
+	end
+
+	return filtered
+end
 
 local Diff = require('pr.diff')
 Pr.diff = Diff
